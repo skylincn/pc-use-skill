@@ -1,0 +1,26 @@
+{
+  "name": "pc-use-mcp-server",
+  "version": "2.0.0",
+  "description": "Cross-platform PC control MCP server with persistent Swift helper, direct CGEvent, and asyncio concurrency for Codex, WorkBuddy, DSH",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "server": "python3 src/server.py"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.0"
+  },
+  "mcp": {
+    "name": "pc-use",
+    "entry": "python3 src/server.py",
+    "description": "Cross-platform PC observation and automation via persistent Swift helper"
+  }
+}
