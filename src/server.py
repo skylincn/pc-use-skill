@@ -20,7 +20,7 @@ from typing import Optional, Dict, Any, List
 try:
     from mcp.server.lowlevel import Server
     from mcp.server.stdio import stdio_server
-    from mcp.types import Tool, TextContent, PaginatedRequestParams, CallToolRequestParams, ListToolsResult, CallToolResult
+    from mcp.types import Tool, TextContent, PaginatedRequestParams, CallToolRequestParams
     MCP_AVAILABLE = True
 except ImportError:
     MCP_AVAILABLE = False
@@ -302,14 +302,14 @@ async def main():
         tools = pc_use.get_tools()
 
         async def list_tools_handler(ctx, params):
-            return ListToolsResult(tools=tools)
+            return {"tools": tools}
 
         async def call_tool_handler(ctx, params):
             try:
                 result = await pc_use.handle_tool_call(params.name, params.arguments or {})
-                return CallToolResult(content=[TextContent(type="text", text=str(result))])
+                return {"content": [{"type": "text", "text": str(result)}]}
             except Exception as e:
-                return CallToolResult(isError=True, content=[TextContent(type="text", text=f"Error: {e}")])
+                return {"isError": True, "content": [{"type": "text", "text": f"Error: {e}"}]}
 
         server.add_request_handler("tools/list", PaginatedRequestParams, list_tools_handler)
         server.add_request_handler("tools/call", CallToolRequestParams, call_tool_handler)

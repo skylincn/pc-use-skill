@@ -3,9 +3,9 @@ name: "pc-use"
 description: "Cross-platform PC (macOS/Windows) observation and automation. Detects OS and uses native tools. Supports screenshot, accessibility tree, and UI interaction. Read-only actions require no confirmation; write actions require explicit user approval."
 description_zh: "跨平台 PC（macOS/Windows）观测与自动化。支持 MCP Server 架构、Swift CGEvent 滚动、多任务并发。单截图验证 + 自动清理。只读操作无需确认，写操作需要明确用户审批。"
 version: 2.0.0
-display_name: "PC Use"
-display_name_en: "PC Use"
-display_name_zh: "PC Use"
+display_name: "授权托管 Agent 操控电脑应用"
+display_name_en: "Authorized Agent PC Control"
+display_name_zh: "授权托管 Agent 操控电脑应用"
 visibility: "public"
 compatibility:
   required:
