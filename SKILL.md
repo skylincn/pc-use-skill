@@ -22,6 +22,8 @@ compatibility:
 
 对标 Codex Desktop Computer Use、oil-oil/computer-use-skill、wimi321/macos-computer-use-skill，提供更简洁高效的跨平台 PC 自动化能力。
 
+对标 Codex Desktop Computer Use、oil-oil/computer-use-skill、wimi321/macos-computer-use-skill，提供更简洁高效的跨平台 PC 自动化能力。
+
 **兼容性**: Codex Desktop / DSH / WorkBuddy / OpenCode / Claude Desktop / 任何其他支持 Skills 的 Agent 软件
 
 **对标能力**: 媲美 Codex Desktop Computer Use 和 wimi321/macos-computer-use-skill
