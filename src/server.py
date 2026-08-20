@@ -31,6 +31,7 @@ from typing import Optional, Dict, Any, List
 try:
     from mcp.server import Server
     from mcp.server.stdio import stdio_server
+    from mcp.types import Tool, TextContent, ImageContent, EmbeddedResource
     MCP_AVAILABLE = True
 except ImportError:
     MCP_AVAILABLE = False
@@ -41,19 +42,14 @@ except ImportError:
 # ═══════════════════════════════════════════════════════════════════════
 
 class SwiftHelper:
-    """Manages a persistent Swift helper subprocess for macOS native ops.
-
-    Spawns once at startup, sends JSON-line requests, receives JSON-line
-    responses.  Eliminates the ~60-120ms per-call `swift -e` spawn overhead.
-
-    Uses asyncio subprocess for clean async I/O with the event loop.
-    """
+    """Manages a persistent Swift helper subprocess for macOS native ops."""
 
     def __init__(self, helper_path: str):
         self.helper_path = helper_path
         self.process: Optional[asyncio.subprocess.Process] = None
         self._pending: Dict[str, asyncio.Future] = {}
         self._reader_task: Optional[asyncio.Task] = None
+        self._lock = asyncio.Lock()
 
     async def start(self):
         """Spawn the Swift helper subprocess."""
@@ -100,47 +96,90 @@ class SwiftHelper:
                 future = self._pending.get(req_id)
                 if future and not future.done():
                     future.set_result(resp)
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                pass
+            except (json.JSONDecodeError, KeyError):
+                continue
 
-    async def call(self, action: str, params: Optional[Dict[str, Any]] = None, timeout: float = 10.0) -> Dict[str, Any]:
-        """Send a request to the Swift helper and await the response."""
-        if self.process is None:
+    async def request(self, action: str, params: Optional[Dict] = None) -> Dict:
+        """Send a request to the Swift helper and wait for response."""
+        async with self._lock:
             await self.start()
-        assert self.process is not None and self.process.stdin is not None
+            req_id = str(uuid.uuid4())
+            request = {"id": req_id, "action": action, "params": params or {}}
+            loop = asyncio.get_event_loop()
+            future = loop.create_future()
+            self._pending[req_id] = future
+            self.process.stdin.write((json.dumps(request) + "\n").encode("utf-8"))
+            await self.process.stdin.drain()
+            try:
+                return await asyncio.wait_for(future, timeout=30)
+            except asyncio.TimeoutError:
+                del self._pending[req_id]
+                raise TimeoutError(f"Swift helper timeout for action: {action}")
+            except Exception as e:
+                if req_id in self._pending:
+                    del self._pending[req_id]
+                raise
 
-        req_id = str(uuid.uuid4())
-        request = {"id": req_id, "action": action, "params": params or {}}
+    async def screenshot(self, crop: Optional[Dict] = None) -> str:
+        """Take a screenshot, optionally cropped."""
+        result = await self.request("screenshot", {"crop": crop})
+        return result.get("path", "")
 
-        future = asyncio.get_running_loop().create_future()
-        self._pending[req_id] = future
+    async def click(self, x: int, y: int) -> bool:
+        """Click at coordinates."""
+        result = await self.request("click", {"x": x, "y": y})
+        return result.get("success", False)
 
-        data = json.dumps(request).encode("utf-8") + b"\n"
-        self.process.stdin.write(data)
-        await self.process.stdin.drain()
+    async def double_click(self, x: int, y: int) -> bool:
+        """Double-click at coordinates."""
+        result = await self.request("double_click", {"x": x, "y": y})
+        return result.get("success", False)
 
-        try:
-            resp = await asyncio.wait_for(future, timeout=timeout)
-            return resp
-        except asyncio.TimeoutError:
-            self._pending.pop(req_id, None)
-            raise TimeoutError(f"SwiftHelper timeout for action '{action}'")
-        finally:
-            self._pending.pop(req_id, None)
+    async def type_text(self, text: str) -> bool:
+        """Type text via clipboard."""
+        result = await self.request("type_text", {"text": text})
+        return result.get("success", False)
+
+    async def scroll(self, x: int, y: int, amount: int) -> bool:
+        """Scroll at coordinates."""
+        result = await self.request("scroll", {"x": x, "y": y, "amount": amount})
+        return result.get("success", False)
+
+    async def get_frontmost_app(self) -> str:
+        """Get frontmost application name."""
+        result = await self.request("get_frontmost_app")
+        return result.get("app", "unknown")
+
+    async def get_windows(self) -> List[Dict]:
+        """Get list of windows."""
+        result = await self.request("get_windows")
+        return result.get("windows", [])
+
+    async def get_accessibility_tree(self, app: Optional[str] = None) -> Dict:
+        """Get accessibility tree."""
+        result = await self.request("get_accessibility_tree", {"app": app})
+        return result.get("tree", {})
+
+    async def key_combo(self, keys: List[str]) -> bool:
+        """Send key combination."""
+        result = await self.request("key_combo", {"keys": keys})
+        return result.get("success", False)
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  PC Use Server
+#  MCP Server Implementation
 # ═══════════════════════════════════════════════════════════════════════
 
-class PCUseServer:
+class PCUseMCP:
+    """PC Use MCP Server - cross-platform PC control."""
+
     def __init__(self):
-        self.screen_state = {"last_screenshot": None, "timestamp": None}
-        self.temp_dir = tempfile.gettempdir()
         self.helper: Optional[SwiftHelper] = None
-        self._sem = asyncio.Semaphore(5)  # max 5 concurrent operations
+        self.platform = platform.system()
+        self._semaphore = asyncio.Semaphore(5)  # concurrency limit
 
     def get_platform(self) -> str:
+        """Detect operating system."""
         system = platform.system()
         if system == "Darwin":
             return "macOS"
@@ -150,247 +189,198 @@ class PCUseServer:
             return "Linux"
         return system
 
-    async def _ensure_helper(self):
-        """Lazy-init the Swift helper on first use (macOS only)."""
-        if self.get_platform() != "macOS":
-            return
-        if self.helper is None:
-            helper_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "swift-helper.swift")
-            if not os.path.exists(helper_path):
-                raise FileNotFoundError(f"Swift helper not found: {helper_path}")
-            self.helper = SwiftHelper(helper_path)
-            await self.helper.start()
+    def get_tools(self) -> List[Tool]:
+        """Define available tools."""
+        return [
+            Tool(
+                name="screenshot",
+                description="Take a screenshot of the screen. Optionally crop to a region.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "crop_x": {"type": "integer", "description": "X coordinate for crop"},
+                        "crop_y": {"type": "integer", "description": "Y coordinate for crop"},
+                        "crop_w": {"type": "integer", "description": "Width for crop"},
+                        "crop_h": {"type": "integer", "description": "Height for crop"},
+                    },
+                    "required": []
+                }
+            ),
+            Tool(
+                name="click",
+                description="Click at specified coordinates.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "x": {"type": "integer", "description": "X coordinate"},
+                        "y": {"type": "integer", "description": "Y coordinate"},
+                    },
+                    "required": ["x", "y"]
+                }
+            ),
+            Tool(
+                name="double_click",
+                description="Double-click at specified coordinates.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "x": {"type": "integer", "description": "X coordinate"},
+                        "y": {"type": "integer", "description": "Y coordinate"},
+                    },
+                    "required": ["x", "y"]
+                }
+            ),
+            Tool(
+                name="type_text",
+                description="Type text at current cursor position. Supports Chinese and Unicode.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "text": {"type": "string", "description": "Text to type"}
+                    },
+                    "required": ["text"]
+                }
+            ),
+            Tool(
+                name="scroll",
+                description="Scroll at specified coordinates. Negative amount scrolls down.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "x": {"type": "integer", "description": "X coordinate"},
+                        "y": {"type": "integer", "description": "Y coordinate"},
+                        "amount": {"type": "integer", "description": "Scroll amount (negative=down)"}
+                    },
+                    "required": ["x", "y", "amount"]
+                }
+            ),
+            Tool(
+                name="get_current_app",
+                description="Get the frontmost application name.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {}
+                }
+            ),
+            Tool(
+                name="get_windows",
+                description="Get list of all visible windows.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {}
+                }
+            ),
+            Tool(
+                name="get_accessibility_tree",
+                description="Get accessibility tree of frontmost or specified app.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "app": {"type": "string", "description": "Application name (optional)"}
+                    }
+                }
+            ),
+            Tool(
+                name="key_combo",
+                description="Send a key combination. Keys separated by commas, e.g. 'command,a' for Cmd+A.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "keys": {"type": "string", "description": "Comma-separated keys"}
+                    },
+                    "required": ["keys"]
+                }
+            ),
+        ]
 
-    async def _macos_op(self, action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Execute a macOS native operation via the Swift helper."""
-        await self._ensure_helper()
-        assert self.helper is not None
-        async with self._sem:
-            return await self.helper.call(action, params)
+    async def handle_tool_call(self, name: str, args: Dict) -> Any:
+        """Handle tool calls."""
+        if name == "screenshot":
+            crop = None
+            if args.get("crop_w") and args.get("crop_h"):
+                crop = {
+                    "x": args.get("crop_x", 0),
+                    "y": args.get("crop_y", 0),
+                    "w": args["crop_w"],
+                    "h": args["crop_h"]
+                }
+            return await self.helper.screenshot(crop)
+        elif name == "click":
+            return await self.helper.click(args["x"], args["y"])
+        elif name == "double_click":
+            return await self.helper.double_click(args["x"], args["y"])
+        elif name == "type_text":
+            return await self.helper.type_text(args["text"])
+        elif name == "scroll":
+            return await self.helper.scroll(args["x"], args["y"], args["amount"])
+        elif name == "get_current_app":
+            return await self.helper.get_frontmost_app()
+        elif name == "get_windows":
+            return await self.helper.get_windows()
+        elif name == "get_accessibility_tree":
+            return await self.helper.get_accessibility_tree(args.get("app"))
+        elif name == "key_combo":
+            keys = [k.strip() for k in args["keys"].split(",")]
+            return await self.helper.key_combo(keys)
+        else:
+            raise ValueError(f"Unknown tool: {name}")
 
-    # ── Screenshot ────────────────────────────────────────────────────
-
-    async def take_screenshot(self, crop: Optional[Dict[str, int]] = None) -> str:
-        """Take a screenshot, optionally cropped to a region."""
-        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-        path = os.path.join(self.temp_dir, f"pc-use-{ts}.png")
-
-        if self.get_platform() == "macOS":
-            resp = await self._macos_op("screenshot", {"crop": crop} if crop else None)
-            if resp.get("success") and resp.get("data"):
-                return resp["data"]
-            # Fallback to screencapture command
-            cmd = ["screencapture", "-x"]
-            if crop:
-                cmd += ["-R", f"{crop['x']},{crop['y']},{crop['w']},{crop['h']}"]
-            cmd.append(path)
-            subprocess.run(cmd, capture_output=True, timeout=5)
-        elif self.get_platform() == "Windows":
-            try:
-                from PIL import ImageGrab
-                img = ImageGrab.grab()
-                if crop:
-                    img = img.crop((crop["x"], crop["y"], crop["x"] + crop["w"], crop["y"] + crop["h"]))
-                img.save(path, "PNG")
-            except ImportError:
-                raise RuntimeError("Pillow not installed: pip install pillow")
-
-        self.screen_state["last_screenshot"] = path
-        self.screen_state["timestamp"] = datetime.now()
-        return path
-
-    # ── Click ─────────────────────────────────────────────────────────
-
-    async def click(self, x: int, y: int, double: bool = False) -> bool:
-        """Click at coordinates. Supports double-click."""
-        if self.get_platform() == "macOS":
-            resp = await self._macos_op("click", {"x": x, "y": y, "double": double})
-            return resp.get("success", False)
-        elif self.get_platform() == "Windows":
-            import pyautogui
-            if double:
-                pyautogui.doubleClick(x, y)
-            else:
-                pyautogui.click(x, y)
-            return True
-        return False
-
-    async def drag(self, x1: int, y1: int, x2: int, y2: int) -> bool:
-        """Drag from (x1,y1) to (x2,y2)."""
-        if self.get_platform() == "macOS":
-            # Use CGEvent for drag: mouseDown, mouseDragged, mouseUp
-            import subprocess
-            code = f"""
-            import CoreGraphics
-            let start = CGPoint(x: {x1}, y: {y1})
-            let end = CGPoint(x: {x2}, y: {y2})
-            let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: start, mouseButton: .left)
-            let drag = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDragged, mouseCursorPosition: end, mouseButton: .left)
-            let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: end, mouseButton: .left)
-            down?.post(tap: .cghidEventTap)
-            drag?.post(tap: .cghidEventTap)
-            up?.post(tap: .cghidEventTap)
-            """
-            subprocess.run(["/usr/bin/swift", "-e", code], capture_output=True, timeout=3)
-            return True
-        elif self.get_platform() == "Windows":
-            import pyautogui
-            pyautogui.moveTo(x1, y1)
-            pyautogui.mouseDown()
-            pyautogui.moveTo(x2, y2, duration=0.3)
-            pyautogui.mouseUp()
-            return True
-        return False
-
-    # ── Type text ─────────────────────────────────────────────────────
-
-    async def type_text(self, text: str) -> bool:
-        """Type text. Uses clipboard + Cmd+V for reliable Unicode/Chinese input."""
-        if self.get_platform() == "macOS":
-            resp = await self._macos_op("type_text", {"text": text})
-            return resp.get("success", False)
-        elif self.get_platform() == "Windows":
-            import pyautogui
-            pyautogui.write(text)
-            return True
-        return False
-
-    # ── Scroll ────────────────────────────────────────────────────────
-
-    async def scroll(self, x: int, y: int, amount: int = -100) -> bool:
-        """Pixel-precise scroll via CGEvent. Negative = scroll down, positive = up."""
-        if self.get_platform() == "macOS":
-            resp = await self._macos_op("scroll", {"x": x, "y": y, "amount": amount})
-            return resp.get("success", False)
-        elif self.get_platform() == "Windows":
-            import pyautogui
-            pyautogui.scroll(amount, x, y)
-            return True
-        return False
-
-    # ── Key combo ─────────────────────────────────────────────────────
-
-    async def key_combo(self, keys: List[str]) -> bool:
-        """Send a key combination, e.g. ['command', 'a'] for Cmd+A."""
-        if self.get_platform() == "macOS":
-            resp = await self._macos_op("key_combo", {"keys": keys})
-            return resp.get("success", False)
-        elif self.get_platform() == "Windows":
-            import pyautogui
-            pyautogui.hotkey(*keys)
-            return True
-        return False
-
-    # ── Frontmost app ─────────────────────────────────────────────────
-
-    async def get_frontmost_app(self) -> str:
-        """Get the name of the frontmost application (no screenshot needed)."""
-        if self.get_platform() == "macOS":
-            resp = await self._macos_op("get_current_app")
-            return resp.get("data", "unknown")
-        elif self.get_platform() == "Windows":
-            import pyautogui
-            return pyautogui.active()
-        return "unknown"
-
-    # ── Window list ───────────────────────────────────────────────────
-
-    async def get_window_list(self) -> List[Dict[str, Any]]:
-        """List all running applications with their windows."""
-        if self.get_platform() == "macOS":
-            resp = await self._macos_op("get_windows")
-            return resp.get("data", [])
-        return []
-
-    # ── Accessibility tree ────────────────────────────────────────────
-
-    async def get_accessibility_tree(self, app: Optional[str] = None) -> Dict[str, Any]:
-        """Read the accessibility tree of the frontmost (or named) application."""
-        if self.get_platform() == "macOS":
-            resp = await self._macos_op("get_accessibility_tree", {"app": app} if app else None)
-            return resp.get("data", {})
-        return {}
-
-
-# ═══════════════════════════════════════════════════════════════════════
-#  MCP Server entry point
-# ═══════════════════════════════════════════════════════════════════════
 
 async def main():
-    if not MCP_AVAILABLE:
-        print("MCP SDK not available. Install with: pip install mcp", flush=True)
+    """Main entry point."""
+    # Determine Swift helper path
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    helper_path = os.path.join(script_dir, "swift-helper")
+    if not os.path.exists(helper_path):
+        print(f"Error: Swift helper not found at {helper_path}", flush=True)
         return
 
-    server = Server("pc-use-mcp")
-    pc = PCUseServer()
+    pc_use = PCUseMCP()
+    pc_use.helper = SwiftHelper(helper_path)
 
-    @server.tool()
-    async def screenshot(crop_x: int = 0, crop_y: int = 0, crop_w: int = 0, crop_h: int = 0) -> str:
-        """Take a screenshot. Optionally crop to a region.
+    if MCP_AVAILABLE:
+        server = Server("pc-use-mcp")
+        tools = pc_use.get_tools()
 
-        Args:
-            crop_x, crop_y: Top-left corner of crop region.
-            crop_w, crop_h: Width and height of crop region (0 = full screen).
-        """
-        crop = {"x": crop_x, "y": crop_y, "w": crop_w, "h": crop_h} if crop_w > 0 and crop_h > 0 else None
-        path = await pc.take_screenshot(crop)
-        return path
+        @server.on_list_tools()
+        async def list_tools():
+            return tools
 
-    @server.tool()
-    async def click_at(x: int, y: int, double: bool = False) -> str:
-        """Click at screen coordinates. Supports double-click."""
-        await pc.click(x, y, double)
-        action = "double-clicked" if double else "clicked"
-        return f"{action} ({x}, {y})"
+        @server.on_call_tool()
+        async def call_tool(name: str, args: Dict):
+            try:
+                result = await pc_use.handle_tool_call(name, args)
+                return [{"type": "text", "text": str(result)}]
+            except Exception as e:
+                return [{"type": "text", "text": f"Error: {str(e)}"}]
 
-    @server.tool()
-    async def type_text_tool(text: str) -> str:
-        """Type text at the current cursor position. Supports Unicode/Chinese."""
-        await pc.type_text(text)
-        return f"typed: {text[:50]}"
-
-    @server.tool()
-    async def scroll_at(x: int = 0, y: int = 0, amount: int = -100) -> str:
-        """Scroll at coordinates. Negative = down, positive = up. Pixel-precise via CGEvent."""
-        await pc.scroll(x, y, amount)
-        direction = "down" if amount < 0 else "up"
-        return f"scrolled {direction} {abs(amount)}px at ({x}, {y})"
-
-    @server.tool()
-    async def get_current_app() -> str:
-        """Get the frontmost application name (no screenshot)."""
-        app = await pc.get_frontmost_app()
-        return f"current app: {app}"
-
-    @server.tool()
-    async def get_windows() -> str:
-        """List all running applications."""
-        windows = await pc.get_window_list()
-        return json.dumps(windows, indent=2)
-
-    @server.tool()
-    async def get_accessibility_tree(app: str = "") -> str:
-        """Read the accessibility tree of the frontmost or named application."""
-        tree = await pc.get_accessibility_tree(app if app else None)
-        return json.dumps(tree, indent=2)
-
-    @server.tool()
-    async def key_combo_tool(keys: str) -> str:
-        """Send a key combination. Comma-separated, e.g. 'command,a' for Cmd+A."""
-        key_list = [k.strip() for k in keys.split(",")]
-        await pc.key_combo(key_list)
-        return f"sent key combo: {key_list}"
-
-    @server.tool()
-    async def drag_at(x1: int, y1: int, x2: int, y2: int) -> str:
-        """Drag from (x1,y1) to (x2,y2)."""
-        await pc.drag(x1, y1, x2, y2)
-        return f"dragged ({x1},{y1}) → ({x2},{y2})"
-
-    print(f"PC Use MCP Server v2.0 started (platform: {pc.get_platform()})", flush=True)
-
-    async with stdio_server() as (read, write):
-        await server.run(read, write, server.create_initialization_state())
+        print(f"PC Use MCP Server v2.0 started (platform: {pc_use.get_platform()})", flush=True)
+        async with stdio_server() as (read, write):
+            await server.run(read, write, server.create_initialization_options())
+    else:
+        print("MCP SDK not available. Please install: pip install mcp", flush=True)
+        # Fallback: direct execution mode
+        await pc_use.helper.start()
+        while True:
+            try:
+                line = await asyncio.get_event_loop().run_in_executor(None, lambda: input("> "))
+                if line.strip() == "exit":
+                    break
+                # Parse and execute commands
+                try:
+                    cmd = json.loads(line)
+                    action = cmd.get("action")
+                    params = cmd.get("params", {})
+                    if hasattr(pc_use.helper, action):
+                        result = await getattr(pc_use.helper, action)(**params)
+                        print(json.dumps({"result": result}))
+                    else:
+                        print(json.dumps({"error": f"Unknown action: {action}"}))
+                except json.JSONDecodeError:
+                    print("Invalid JSON")
+            except EOFError:
+                break
+        await pc_use.helper.stop()
 
 
 if __name__ == "__main__":
