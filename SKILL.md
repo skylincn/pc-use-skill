@@ -663,7 +663,7 @@ python server.py
   "mcpServers": {
     "pc-use": {
       "command": "python3",
-      "args": ["/Users/skymini/Documents/skills/pc-use/src/server.py"]
+      "args": ["~/.skills/pc-use/src/server.py"]
     }
   }
 }
