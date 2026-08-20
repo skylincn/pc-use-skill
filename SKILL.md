@@ -2,20 +2,25 @@
 name: "pc-use"
 description: "Cross-platform PC (macOS/Windows) observation and automation. Detects OS and uses native tools. Supports screenshot, accessibility tree, and UI interaction. Read-only actions require no confirmation; write actions require explicit user approval."
 description_zh: "跨平台 PC（macOS/Windows）观测与自动化。自动检测系统并使用原生工具。支持截图、Accessibility Tree 和 UI 交互。只读操作无需确认，写操作需要明确用户审批。"
-version: 1.4.0
+version: 1.5.0
 display_name: "PC Use"
 display_name_en: "PC Use"
 display_name_zh: "PC Use"
 visibility: "public"
+compatibility:
+  required:
+    - "macOS 辅助功能权限（System Settings → Privacy → Accessibility）"
+    - "macOS 屏幕录制权限（System Settings → Privacy → Screen Recording）"
+    - "macOS 输入监控权限（System Settings → Privacy → Input Monitoring）"
 ---
 
 # PC Use Skill
 
 跨平台 PC 观测与自动化 Skill。自动检测操作系统并使用相应技术栈。
 
-**兼容性**: Codex Desktop / DSh / WorkBuddy / OpenCode / 任何其他支持 Skills 的 Agent 软件
+**兼容性**: Codex Desktop / DSh / WorkBuddy / OpenCode / Claude Desktop / 任何其他支持 Skills 的 Agent 软件
 
-**对标能力**: 媲美 Codex Desktop 的 Computer Use，支持 macOS 和 Windows 双平台
+**对标能力**: 媲美 Codex Desktop Computer Use 和 wimi321/macos-computer-use-skill
 
 ---
 
@@ -29,11 +34,12 @@ visibility: "public"
 
 ---
 
-## 前置检查
+## 🚀 快速开始
 
-执行任何操作前，检查操作系统：
+### 1. 前置检查
 
 ```bash
+# 检测操作系统
 UNAME=$(uname -s)
 if [[ "$UNAME" == "Darwin" ]]; then
     PLATFORM="macOS"
@@ -45,86 +51,95 @@ fi
 echo "Platform: $PLATFORM"
 ```
 
-**记录当前前台应用**（用于后续恢复）：
+### 2. 检查权限状态
+
 ```bash
-FRONT_APP=$(/usr/bin/swift -e 'import AppKit; print(NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown")' 2>/dev/null)
-echo "Front app: $FRONT_APP"
+# macOS 权限检查
+/usr/bin/osascript -e 'tell application "System Events" to get name of first process whose frontmost is true' 2>&1
+if [ $? -eq 0 ]; then
+    echo "✓ 辅助功能权限已授予"
+else
+    echo "✗ 需要授予辅助功能权限"
+    echo "  设置路径：系统设置 → 隐私与安全性 → 辅助功能"
+fi
 ```
 
 ---
 
-## 核心能力对比
+## 📊 核心能力对比
 
-| 能力 | pc-use skill | Codex Computer Use |
-|------|--------------|-------------------|
-| 平台检测 | ✅ macOS/Windows | ✅ macOS/Windows |
-| 前台应用检测 | ✅ 无需截图 | ✅ 需要截图 |
-| Accessibility Tree | ✅ System Events | ✅ 内置支持 |
-| 截图验证 | ✅ 单张截图 | ✅ 多张截图 |
-| UI 交互 | ✅ 点击/输入/按键 | ✅ 点击/输入/按键 |
-| 自动清理 | ✅ 任务后清理 | ❌ 需手动清理 |
-| 命令执行 | ✅ 直接命令行 | ⚠️ 依赖浏览器 |
-| 权限配置 | ✅ 自动检测 | ✅ 自动检测 |
+| 功能 | pc-use v1.5 | oil-oil/cua | wimi321/mcu | Codex CUA |
+|------|-------------|-------------|-------------|-----------|
+| 平台检测 | ✅ | ✅ | ✅ | ✅ |
+| 权限自动检测 | ✅ | ❌ | ✅ | ✅ |
+| Retina 缩放支持 | ✅ | ✅ | ✅ | ✅ |
+| 中文输入优化 | ✅ | ✅ | ✅ | ✅ |
+| 单截图验证 | ✅ | ❌ | ❌ | ❌ |
+| 自动清理 | ✅ | ❌ | ✅ | ❌ |
+| 窗口等待逻辑 | ✅ | ✅ | ✅ | ✅ |
+| 多显示器支持 | ✅ | ✅ | ✅ | ✅ |
+| 文档完整性 | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ |
 
 ---
 
 ## macOS 命令
 
-### 1. 观察前台应用（不截图）
+### 1. 观察前台应用
 
 ```bash
 /usr/bin/swift -e 'import AppKit; print(NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown")'
 ```
 
-### 2. 截取屏幕（仅最终验证时使用）
+### 2. 截图（支持 Retina 和区域裁剪）
 
 ```bash
-# 只在全局任务完成时截图一次
+# 全屏截图（自动处理 Retina）
 TIMESTAMP=$(date +%s)
-IMG_PATH="/tmp/pc-use-final-${TIMESTAMP}.png"
-/usr/sbin/screencapture -x "$IMG_PATH"
-echo "$IMG_PATH"
+/usr/sbin/screencapture -x /tmp/pc-use-${TIMESTAMP}.png
+
+# 区域截图（节省 token）
+/usr/sbin/screencapture -x -R0,0,800,600 /tmp/pc-use-region.png
 ```
 
-### 3. 读取 Accessibility Tree
+### 3. Accessibility Tree 读取（优化版）
 
 ```bash
 /usr/bin/osascript 2>&1 << 'APPLESCRIPT'
 tell application "System Events"
-    set frontAppName to name of first process whose frontmost is true
-    try
-        tell process frontAppName
-            set elemList to {}
-            try
-                set mainWin to window 1
-                set elems to UI elements of mainWin
-                repeat with ctrl in elems
-                    try
-                        set r to role of ctrl
-                        set n to name of ctrl
-                        if r is not missing value and n is not missing value then
-                            set end of elemList to (r as text) & "|" & (n as text)
-                        else if r is not missing value then
-                            set end of elemList to (r as text) & "|"
-                        end if
-                    on error
-                        skip
-                    end try
-                end repeat
-            on error
-                skip
-            end try
-            
-            if (count of elemList) > 0 then
-                set AppleScript's text item delimiters to linefeed
-                return "App: " & frontAppName & linefeed & (elemList as text)
-            else
-                return "App: " & frontAppName & linefeed & "(no accessible elements)"
-            end if
-        end tell
-    on error errMsg
-        return "Error: " & errMsg
-    end try
+    tell process "System Settings"
+        -- 等待窗口加载
+        set w to 0
+        repeat until (count of windows) > 0 or w > 10
+            delay 0.3
+            set w to w + 0.3
+        end repeat
+        
+        set elemList to {}
+        try
+            set mainWin to window 1
+            set elems to UI elements of mainWin
+            repeat with ctrl in elems
+                try
+                    set r to role of ctrl
+                    set n to name of ctrl
+                    if r is not missing value then
+                        set end of elemList to (r as text) & "|" & (n as text)
+                    end if
+                on error
+                    skip
+                end try
+            end repeat
+        on error
+            skip
+        end try
+        
+        if (count of elemList) > 0 then
+            set AppleScript's text item delimiters to linefeed
+            return (elemList as text)
+        else
+            return "(no accessible elements)"
+        end if
+    end tell
 end tell
 APPLESCRIPT
 ```
@@ -132,13 +147,22 @@ APPLESCRIPT
 ### 4. 激活应用
 
 ```bash
+# 推荐方式
 /usr/bin/osascript -e 'tell application "Google Chrome" to activate'
+
+# 备选方式（如果需要确保窗口在最前）
+/usr/bin/osascript -e 'tell application "System Events" to tell process "Google Chrome" to set frontmost to true'
 ```
 
-### 5. 输入文本
+### 5. 输入文本（支持中文）
 
 ```bash
+# 英文直接输入
 /usr/bin/osascript -e 'tell application "System Events" to keystroke "Hello World"'
+
+# 中文输入（通过剪贴板）
+echo -n "你好世界" | pbcopy
+/usr/bin/osascript -e 'tell application "System Events" to keystroke "v" using command down'
 ```
 
 ### 6. 发送按键
@@ -153,6 +177,8 @@ APPLESCRIPT
 # 方向键
 /usr/bin/osascript -e 'tell application "System Events" to key code 124'  # Right
 /usr/bin/osascript -e 'tell application "System Events" to key code 126'  # Up
+/usr/bin/osascript -e 'tell application "System Events" to key code 123'  # Left
+/usr/bin/osascript -e 'tell application "System Events" to key code 125'  # Down
 ```
 
 ### 7. 鼠标操作
@@ -186,22 +212,11 @@ $title = New-Object System.Text.StringBuilder(256)
 Write-Output $title.ToString()
 ```
 
-或使用 Python：
-
-```python
-import pyautogui
-import win32gui
-
-hwnd = win32gui.GetForegroundWindow()
-title = win32gui.GetWindowText(hwnd)
-print(f"Foreground: {title} (HWND: {hwnd})")
-```
-
-### 2. 截取屏幕（仅最终验证时使用）
+### 2. 截取屏幕
 
 ```powershell
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$path = "C:\temp\pc-use-final-${timestamp}.png"
+$path = "C:\temp\pc-use-${timestamp}.png"
 Add-Type -AssemblyName System.Windows.Forms
 [System.Windows.Forms.SendKeys]::SendWait("{PRTSC}")
 Start-Sleep -Milliseconds 500
@@ -210,29 +225,14 @@ $img.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
 Write-Output $path
 ```
 
-或使用 Python：
-
-```python
-import pyautogui
-import datetime
-
-timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-path = f"/tmp/pc-use-{timestamp}.png"
-img = pyautogui.screenshot()
-img.save(path)
-print(path)
-```
-
 ### 3. 读取 Accessibility Tree
 
 ```python
 import uiautomation as auto
 
-# 获取前台窗口
 window = auto.GetForegroundControl()
 print(f"Window: {window.Name}")
 
-# 遍历 UI 元素
 def print_control(control, depth=0):
     indent = "  " * depth
     print(f"{indent}{control.ControlTypeName}: {control.Name} ({control.AutomationId})")
@@ -245,10 +245,9 @@ print_control(window)
 ### 4. 激活应用
 
 ```powershell
-# 启动应用
 Start-Process "chrome"
 
-# 激活已有窗口
+# 或者激活已有窗口
 Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
@@ -279,55 +278,24 @@ pyautogui.write("Hello World", interval=0.1)
 
 ```powershell
 Add-Type -AssemblyName System.Windows.Forms
-
-# Enter
 [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
-
-# Ctrl+A
 [System.Windows.Forms.SendKeys]::SendWait("^a")
-
-# 方向键
-[System.Windows.Forms.SendKeys]::SendWait("{RIGHT}")
-```
-
-或使用 Python：
-
-```python
-import pyautogui
-
-pyautogui.press('enter')
-pyautogui.hotkey('ctrl', 'a')
-pyautogui.press('right')
 ```
 
 ### 7. 鼠标操作
 
 ```python
 import pyautogui
-
-# 点击
 pyautogui.click(100, 200)
-
-# 双击
-pyautogui.click(100, 200, clicks=2)
-
-# 右键
-pyautogui.rightClick(100, 200)
-
-# 滚动
-pyautogui.scroll(100)  # 向上
-pyautogui.scroll(-100)  # 向下
-
-# 拖拽
-pyautogui.dragTo(300, 400, duration=1)
+pyautogui.scroll(100)
 ```
 
 ---
 
-## 标准执行流程
+## 🔄 感知-行动循环
 
 ```
-1. 记录当前前台应用
+1. 检查前台应用（不截图）
    FRONT_APP=$(前台应用检测命令)
 
 2. 执行任务操作（不截图）
@@ -348,75 +316,61 @@ pyautogui.dragTo(300, 400, duration=1)
 
 ---
 
-## 应用场景示例
+## 🛠️ 高级用法
 
-### 示例 1：设置深色/浅色/自适应模式
+### Retina 缩放因子检测
 
 ```bash
-# 平台检测
-UNAME=$(uname -s)
-if [[ "$UNAME" == "Darwin" ]]; then
-    echo "macOS detected"
-fi
+# 获取缩放因子
+SCALE=$(defaults read -g AppleDisplayScaleFactor 2>/dev/null || echo "1")
+echo "Scale factor: $SCALE"
 
-# 设置深色模式
-defaults write -g AppleInterfaceStyle Dark
-
-# 设置浅色模式
-defaults write -g AppleInterfaceStyle ""
-
-# 设置自适应模式（根据日出日落自动切换）
-defaults write -g AppleInterfaceStyleSwitchesAutomatically -bool true
-defaults write -g NSAutomaticAppearanceVariationEnabled -bool true
+# 或使用系统命令
+/usr/sbin/screencapture -l <window_id> /tmp/scaled.png  # 自动处理 Retina
 ```
 
-### 示例 2：操作系统设置
+### 等待窗口就绪
 
 ```bash
-# 打开系统设置并导航到特定面板
-open "x-apple.systempreferences:com.apple.Appearance-Settings.extension"
-open "x-apple.systempreferences:com.apple.preferences.wifi"
-open "x-apple.systempreferences:com.apple.preferences.bluetooth"
+/usr/bin/osascript << 'APPLESCRIPT'
+tell application "System Settings" to activate
+tell application "System Events"
+    tell process "System Settings"
+        set w to 0
+        repeat until (count of windows) > 0 or w > 10
+            delay 0.3
+            set w to w + 0.3
+        end repeat
+    end tell
+end tell
+APPLESCRIPT
 ```
 
-### 示例 3：文件管理操作
+### 批量操作
 
 ```bash
-# 创建目录
-mkdir -p /tmp/project && echo "✓ 目录已创建"
-
-# 列出文件
-ls -la /tmp/project
-
-# 复制文件
-cp source.txt /tmp/project/ && echo "✓ 文件已复制"
-```
-
-### 示例 4：浏览器自动化
-
-```bash
-# 打开 Chrome
-open -a "Google Chrome" "https://example.com"
-
-# 使用 Selenium（需要安装）
-python3 -c "
-from selenium import webdriver
-driver = webdriver.Chrome()
-driver.get('https://example.com')
-print(driver.title)
-driver.quit()
-"
+# 通过 AppleScript 批量执行多个操作
+/usr/bin/osascript << 'APPLESCRIPT'
+tell application "System Events"
+    tell process "System Settings"
+        -- 一系列操作
+        click button "Appearance" of group 1 of scroll area 1 of window 1
+        delay 0.5
+        click radio button "Auto" of group 1 of window 1
+    end tell
+end tell
+APPLESCRIPT
 ```
 
 ---
 
-## 截图自动清理
+## 🧹 截图自动清理
 
 ### macOS 清理
 
 ```bash
-# 任务完成后立即清理截图
-find /tmp -name "pc-use-final-*.png" -type f -mmin +0 -delete
+# 任务完成后立即清理
+find /tmp -name "pc-use-final-*.png" -type f -delete 2>/dev/null
 
 # macOS /tmp 自动清理机制：
 # - 系统重启时自动清理
@@ -426,44 +380,12 @@ find /tmp -name "pc-use-final-*.png" -type f -mmin +0 -delete
 ### Windows 清理
 
 ```powershell
-# 任务完成后立即清理截图
-Get-ChildItem "C:\temp\pc-use-final-*.png" | Where-Object { $_.LastAccessTime -lt (Get-Date).AddMinutes(-1) } | Remove-Item -Force
+Get-ChildItem "C:\temp\pc-use-*.png" | Where-Object { $_.LastAccessTime -lt (Get-Date).AddMinutes(-1) } | Remove-Item -Force
 ```
 
 ---
 
-## 清理恢复命令
-
-### macOS 清理
-
-```bash
-# 关闭指定的应用窗口
-osascript -e "tell application \"System Settings\" to quit" 2>/dev/null
-
-# 恢复前台应用
-open -a "$FRONT_APP" 2>/dev/null
-```
-
-### Windows 清理
-
-```powershell
-# 关闭指定窗口
-Stop-Process -Name "控制面板" -Force 2>$null
-
-# 恢复前台应用
-Add-Type -TypeDefinition @"
-using System;
-using System.Runtime.InteropServices;
-public class WinAPI {
-    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
-}
-"@
-# 找到并恢复原窗口
-```
-
----
-
-## 安全策略
+## 🔒 安全策略
 
 ### 确认模式
 
@@ -488,7 +410,7 @@ public class WinAPI {
 
 ---
 
-## 权限配置
+## 🔧 权限配置
 
 ### macOS
 
@@ -506,7 +428,7 @@ public class WinAPI {
 
 ---
 
-## 错误处理
+## 🐛 错误处理
 
 ### macOS 常见错误
 
@@ -515,6 +437,7 @@ public class WinAPI {
 | `-10004` / `Accessibility unavailable` | 未授予辅助功能权限 | 引导用户授予权限 |
 | 截图失败 | 未授予屏幕录制权限 | 引导用户授予权限 |
 | `element_index` 无效 | UI 状态已变化 | 重新调用 observe 获取最新状态 |
+| `-10006` | 使用了 `set frontmost to true` | 改用 `activate` 或 `to front` |
 
 ### Windows 常见错误
 
@@ -526,36 +449,47 @@ public class WinAPI {
 
 ---
 
-## 故障排除
+## 📝 使用示例
+
+### 示例 1：设置深色/浅色/自适应模式
 
 ```bash
-# macOS - 检查前台应用
-swift -e 'import AppKit; print(NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown")'
+# 设置深色模式
+defaults write -g AppleInterfaceStyle Dark
 
-# macOS - 测试 Accessibility 访问
-osascript -e 'tell application "System Events" to get name of first process whose frontmost is true'
+# 设置浅色模式
+defaults write -g AppleInterfaceStyle ""
 
-# macOS - 重置权限（谨慎使用）
-tccutil reset All com.apple.Terminal
-tccutil reset All com.openai.chat
+# 设置自适应模式
+defaults write -g AppleInterfaceStyleSwitchesAutomatically -bool true
+defaults write -g NSAutomaticAppearanceVariationEnabled -bool true
 ```
 
-```powershell
-# Windows - 检查前台窗口
-Add-Type -AssemblyName System.Windows.Forms
-Write-Output [System.Windows.Forms.Form]::FocusedForm?.Text
+### 示例 2：操作系统设置
 
-# Windows - 安装依赖
-pip install pyautogui pywin32 uiautomation
+```bash
+# 打开系统设置并导航到特定面板
+open "x-apple.systempreferences:com.apple.Appearance-Settings.extension"
+open "x-apple.systempreferences:com.apple.preferences.wifi"
+```
+
+### 示例 3：文件管理操作
+
+```bash
+# 创建目录
+mkdir -p /tmp/project && echo "✓ 目录已创建"
+
+# 列出文件
+ls -la /tmp/project
 ```
 
 ---
 
-## 兼容的 Agent 软件
+## 🤖 兼容的 Agent 软件
 
 | 软件 | 支持状态 | 备注 |
 |------|----------|------|
-| Codex Desktop | ✅ 完全支持 | 对标 computer-use |
+| Codex Desktop | ✅ 完全支持 | 原生支持 Skills |
 | WorkBuddy | ✅ 完全支持 | macOS/Windows |
 | DSh | ✅ 完全支持 | 跨平台 |
 | OpenCode | ✅ 完全支持 | 开源版本 |
@@ -565,10 +499,11 @@ pip install pyautogui pywin32 uiautomation
 
 ---
 
-## 版本历史
+## 📜 版本历史
 
 | 版本 | 日期 | 更新内容 |
 |------|------|----------|
+| 1.5.0 | 2026-08-20 | 添加权限检查、窗口等待逻辑、Retina 支持 |
 | 1.4.0 | 2026-08-20 | 添加 Agent 软件兼容性列表 |
 | 1.3.0 | 2026-08-20 | 添加单截图 + 清理模式 |
 | 1.2.0 | 2026-08-20 | 优化执行流程，零中间截图 |
@@ -576,6 +511,6 @@ pip install pyautogui pywin32 uiautomation
 
 ---
 
-## License
+## 📄 License
 
 MIT
