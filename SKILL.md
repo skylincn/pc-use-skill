@@ -18,7 +18,11 @@ compatibility:
 
 跨平台 PC 观测与自动化 Skill。自动检测操作系统并使用相应技术栈。
 
-**兼容性**: Codex Desktop / DSh / WorkBuddy / OpenCode / Claude Desktop / 任何其他支持 Skills 的 Agent 软件
+**媲美 Codex Computer Use**
+
+对标 Codex Desktop Computer Use、oil-oil/computer-use-skill、wimi321/macos-computer-use-skill，提供更简洁高效的跨平台 PC 自动化能力。
+
+**兼容性**: Codex Desktop / DSH / WorkBuddy / OpenCode / Claude Desktop / 任何其他支持 Skills 的 Agent 软件
 
 **对标能力**: 媲美 Codex Desktop Computer Use 和 wimi321/macos-computer-use-skill
 
@@ -491,7 +495,7 @@ ls -la /tmp/project
 |------|----------|------|
 | Codex Desktop | ✅ 完全支持 | 原生支持 Skills |
 | WorkBuddy | ✅ 完全支持 | macOS/Windows |
-| DSh | ✅ 完全支持 | 跨平台 |
+| DSH | ✅ 完全支持 | 跨平台 |
 | OpenCode | ✅ 完全支持 | 开源版本 |
 | Claude Desktop | ✅ 完全支持 | 通过 Skills |
 | Cursor | ⚠️ 部分支持 | 需要额外配置 |

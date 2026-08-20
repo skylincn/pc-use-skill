@@ -9,7 +9,7 @@
 - **单截图验证**: 仅任务完成时截图一次
 - **自动清理**: 任务完成后自动清理临时文件
 - **权限检测**: 自动检测并提示所需权限
-- **Agent 兼容**: 支持 Codex、WorkBuddy、DSh、OpenCode 等
+- **Agent 兼容**: 支持 Codex、WorkBuddy、DSH、OpenCode 等
 
 ## 📦 安装
 
@@ -72,7 +72,7 @@ defaults write -g NSAutomaticAppearanceVariationEnabled -bool true
 |------|------|------|
 | Codex Desktop | ✅ | 原生支持 |
 | WorkBuddy | ✅ | macOS/Windows |
-| DSh | ✅ | 跨平台 |
+| DSH | ✅ | 跨平台 |
 | OpenCode | ✅ | 开源版本 |
 | Claude Desktop | ✅ | 通过 Skills |
 | Cursor | ⚠️ | 需配置 |
