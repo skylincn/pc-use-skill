@@ -20,7 +20,7 @@ from typing import Optional, Dict, Any, List
 try:
     from mcp.server.lowlevel import Server
     from mcp.server.stdio import stdio_server
-    from mcp.types import Tool, TextContent, PaginatedRequestParams, CallToolRequestParams
+    from mcp.types import Tool, TextContent, PaginatedRequestParams, CallToolRequestParams, ListToolsResult, CallToolResult
     MCP_AVAILABLE = True
 except ImportError:
     MCP_AVAILABLE = False
@@ -86,7 +86,7 @@ class SwiftHelper:
             async with self._lock:
                 await self.start()
                 req_id = str(uuid.uuid4())
-            request = {"id": req_id, "action": action, "params": params or {}}
+                request = {"id": req_id, "action": action, "params": params or {}}
             loop = asyncio.get_event_loop()
             future = loop.create_future()
             self._pending[req_id] = future
@@ -302,14 +302,16 @@ async def main():
         tools = pc_use.get_tools()
 
         async def list_tools_handler(ctx, params):
-            return {"tools": tools}
+            # Convert Tool objects to dicts for MCP SDK v2.0
+            tools_dict = [t.model_dump(by_alias=True, exclude_none=True) for t in tools]
+            return ListToolsResult(tools=tools_dict)
 
         async def call_tool_handler(ctx, params):
             try:
                 result = await pc_use.handle_tool_call(params.name, params.arguments or {})
-                return {"content": [{"type": "text", "text": str(result)}]}
+                return CallToolResult(content=[TextContent(type="text", text=str(result))])
             except Exception as e:
-                return {"isError": True, "content": [{"type": "text", "text": f"Error: {e}"}]}
+                return CallToolResult(isError=True, content=[TextContent(type="text", text=f"Error: {e}")])
 
         server.add_request_handler("tools/list", PaginatedRequestParams, list_tools_handler)
         server.add_request_handler("tools/call", CallToolRequestParams, call_tool_handler)
