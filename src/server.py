@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """
-PC Use MCP Server - Optimized v2.0
-==================================
-Persistent Swift helper for macOS native operations.
-Low-latency, concurrent, multi-task safe.
+PC Use MCP Server - Simplified v2.0
+Direct JSON-RPC over stdio, no complex MCP SDK dependencies.
 """
 
 import asyncio
@@ -13,29 +11,28 @@ import platform
 import subprocess
 import tempfile
 import uuid
-from datetime import datetime
 from typing import Optional, Dict, Any, List
 
-# ── MCP SDK ──────────────────────────
+# Check for MCP SDK (optional, graceful degradation)
 try:
     from mcp.server.lowlevel import Server
     from mcp.server.stdio import stdio_server
-    from mcp.types import Tool, TextContent, PaginatedRequestParams, CallToolRequestParams, ListToolsResult, CallToolResult
+    from mcp.types import Tool, PaginatedRequestParams, CallToolRequestParams
     MCP_AVAILABLE = True
 except ImportError:
     MCP_AVAILABLE = False
 
 
 class SwiftHelper:
-    """Manages a persistent Swift helper subprocess."""
+    """Persistent Swift helper for macOS native operations."""
 
-    def __init__(self, helper_path: str, max_concurrent: int = 5):
+    def __init__(self, helper_path: str):
         self.helper_path = helper_path
         self.process = None
         self._pending = {}
         self._reader_task = None
         self._lock = asyncio.Lock()
-        self._semaphore = asyncio.Semaphore(max_concurrent)
+        self._semaphore = asyncio.Semaphore(5)
 
     async def start(self):
         if self.process is not None:
@@ -88,19 +85,19 @@ class SwiftHelper:
                 req_id = str(uuid.uuid4())
                 request = {"id": req_id, "action": action, "params": params or {}}
                 loop = asyncio.get_event_loop()
-            future = loop.create_future()
-            self._pending[req_id] = future
-            self.process.stdin.write((json.dumps(request) + "\n").encode("utf-8"))
-            await self.process.stdin.drain()
-            try:
-                return await asyncio.wait_for(future, timeout=30)
-            except asyncio.TimeoutError:
-                del self._pending[req_id]
-                raise TimeoutError(f"Swift helper timeout: {action}")
-            except Exception as e:
-                if req_id in self._pending:
+                future = loop.create_future()
+                self._pending[req_id] = future
+                self.process.stdin.write((json.dumps(request) + "\n").encode("utf-8"))
+                await self.process.stdin.drain()
+                try:
+                    return await asyncio.wait_for(future, timeout=30)
+                except asyncio.TimeoutError:
                     del self._pending[req_id]
-                raise
+                    raise TimeoutError(f"Swift helper timeout: {action}")
+                except Exception as e:
+                    if req_id in self._pending:
+                        del self._pending[req_id]
+                    raise
 
     async def screenshot(self, crop=None):
         result = await self.request("screenshot", {"crop": crop})
@@ -156,101 +153,27 @@ class PCUseMCP:
 
     def get_tools(self):
         return [
-            Tool(
-                name="screenshot",
-                description="Take a screenshot. Optionally crop to a region.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "crop_x": {"type": "integer"},
-                        "crop_y": {"type": "integer"},
-                        "crop_w": {"type": "integer"},
-                        "crop_h": {"type": "integer"},
-                    }
-                }
-            ),
-            Tool(
-                name="click",
-                description="Click at coordinates.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "x": {"type": "integer"},
-                        "y": {"type": "integer"},
-                    },
-                    "required": ["x", "y"]
-                }
-            ),
-            Tool(
-                name="double_click",
-                description="Double-click at coordinates.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "x": {"type": "integer"},
-                        "y": {"type": "integer"},
-                    },
-                    "required": ["x", "y"]
-                }
-            ),
-            Tool(
-                name="type_text",
-                description="Type text (supports Chinese).",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "text": {"type": "string"}
-                    },
-                    "required": ["text"]
-                }
-            ),
-            Tool(
-                name="scroll",
-                description="Scroll. Negative = down.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "x": {"type": "integer"},
-                        "y": {"type": "integer"},
-                        "amount": {"type": "integer"}
-                    },
-                    "required": ["x", "y", "amount"]
-                }
-            ),
-            Tool(
-                name="get_current_app",
-                description="Get frontmost app name.",
-                inputSchema={"type": "object", "properties": {}}
-            ),
-            Tool(
-                name="get_windows",
-                description="Get window list.",
-                inputSchema={"type": "object", "properties": {}}
-            ),
-            Tool(
-                name="get_accessibility_tree",
-                description="Get accessibility tree.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "app": {"type": "string"}
-                    }
-                }
-            ),
-            Tool(
-                name="key_combo",
-                description="Send key combo, e.g. 'command,a'.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "keys": {"type": "string"}
-                    },
-                    "required": ["keys"]
-                }
-            ),
+            {"name": "screenshot", "description": "Take a screenshot. Optionally crop to a region.",
+             "inputSchema": {"type": "object", "properties": {"crop_x": {"type": "integer"}, "crop_y": {"type": "integer"}, "crop_w": {"type": "integer"}, "crop_h": {"type": "integer"}}}},
+            {"name": "click", "description": "Click at coordinates.",
+             "inputSchema": {"type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}}, "required": ["x", "y"]}},
+            {"name": "double_click", "description": "Double-click at coordinates.",
+             "inputSchema": {"type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}}, "required": ["x", "y"]}},
+            {"name": "type_text", "description": "Type text (supports Chinese).",
+             "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
+            {"name": "scroll", "description": "Scroll. Negative = down.",
+             "inputSchema": {"type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}, "amount": {"type": "integer"}}, "required": ["x", "y", "amount"]}},
+            {"name": "get_current_app", "description": "Get frontmost app name.",
+             "inputSchema": {"type": "object", "properties": {}}},
+            {"name": "get_windows", "description": "Get window list.",
+             "inputSchema": {"type": "object", "properties": {}}},
+            {"name": "get_accessibility_tree", "description": "Get accessibility tree.",
+             "inputSchema": {"type": "object", "properties": {"app": {"type": "string"}}}},
+            {"name": "key_combo", "description": "Send key combo, e.g. 'command,a'.",
+             "inputSchema": {"type": "object", "properties": {"keys": {"type": "string"}}, "required": ["keys"]}},
         ]
 
-    async def handle_tool_call(self, name: str, args: Dict) -> Any:
+    async def handle_tool_call(self, name: str, args: Dict) -> str:
         if name == "screenshot":
             crop = None
             if args.get("crop_w") and args.get("crop_h"):
@@ -289,7 +212,7 @@ class PCUseMCP:
 async def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     helper_path = os.path.join(script_dir, "swift-helper")
-    
+
     if not os.path.exists(helper_path):
         print(f"Error: Swift helper not found at {helper_path}", flush=True)
         return
@@ -298,29 +221,69 @@ async def main():
     pc_use.helper = SwiftHelper(helper_path)
 
     if MCP_AVAILABLE:
+        # Use MCP SDK with proper handlers
         server = Server("pc-use-mcp")
         tools = pc_use.get_tools()
 
+        @server.add_request_handler("tools/list", PaginatedRequestParams)
         async def list_tools_handler(ctx, params):
-            # Convert Tool objects to dicts for MCP SDK v2.0
-            tools_dict = [t.model_dump(by_alias=True, exclude_none=True) for t in tools]
-            return ListToolsResult(tools=tools_dict)
+            return {"tools": tools}
 
+        @server.add_request_handler("tools/call", CallToolRequestParams)
         async def call_tool_handler(ctx, params):
             try:
                 result = await pc_use.handle_tool_call(params.name, params.arguments or {})
-                return CallToolResult(content=[TextContent(type="text", text=str(result))])
+                return {"content": [{"type": "text", "text": str(result)}]}
             except Exception as e:
-                return CallToolResult(isError=True, content=[TextContent(type="text", text=f"Error: {e}")])
-
-        server.add_request_handler("tools/list", PaginatedRequestParams, list_tools_handler)
-        server.add_request_handler("tools/call", CallToolRequestParams, call_tool_handler)
+                return {"isError": True, "content": [{"type": "text", "text": f"Error: {e}"}]}
 
         print(f"PC Use MCP Server v2.0 started (platform: {pc_use.get_platform()})", flush=True)
         async with stdio_server() as (read, write):
             await server.run(read, write, server.create_initialization_options())
     else:
-        print("MCP SDK not available. Install: pip install mcp", flush=True)
+        # Fallback: simple JSON-RPC server
+        print(f"PC Use Server v2.0 (no MCP SDK) started", flush=True)
+        reader = asyncio.StreamReader()
+        protocol = asyncio.StreamReaderProtocol(reader)
+        await asyncio.get_event_loop().connect_read_pipe(lambda: protocol, sys.stdin)
+        wsock = asyncio.StreamWriter(sys.stdout, None, None)
+
+        while True:
+            line = await reader.readline()
+            if not line:
+                break
+            try:
+                msg = json.loads(line.decode())
+                if msg.get("method") == "initialize":
+                    resp = {"jsonrpc": "2.0", "id": msg["id"], "result": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {"tools": {}},
+                        "serverInfo": {"name": "pc-use", "version": "2.0.0"}
+                    }}
+                elif msg.get("method") == "tools/list":
+                    resp = {"jsonrpc": "2.0", "id": msg["id"], "result": {"tools": tools}}
+                elif msg.get("method") == "tools/call":
+                    name = msg["params"]["name"]
+                    args = msg["params"].get("arguments", {})
+                    try:
+                        result = await pc_use.handle_tool_call(name, args)
+                        resp = {"jsonrpc": "2.0", "id": msg["id"], "result": {
+                            "content": [{"type": "text", "text": result}]
+                        }}
+                    except Exception as e:
+                        resp = {"jsonrpc": "2.0", "id": msg["id"], "error": {
+                            "code": -32000, "message": str(e)
+                        }}
+                else:
+                    resp = {"jsonrpc": "2.0", "id": msg.get("id"), "error": {
+                        "code": -32601, "message": f"Method not found: {msg.get('method')}"
+                    }}
+                wsock.write((json.dumps(resp) + "\n").encode())
+                await wsock.drain()
+            except Exception as e:
+                print(f"Error: {e}", flush=True)
+
+        await pc_use.helper.stop()
 
 
 if __name__ == "__main__":
