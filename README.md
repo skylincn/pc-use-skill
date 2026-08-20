@@ -2,32 +2,43 @@
 
 跨平台 PC 观测与自动化 Skill，支持 macOS 和 Windows。
 
-## 功能特性
+## 🎯 核心特性
 
-- **平台检测**: 自动识别 macOS / Windows
-- **前台应用检测**: 获取当前活跃应用
-- **截图验证**: 单次截图验证任务结果
-- **Accessibility Tree**: 读取 UI 元素树
-- **UI 交互**: 点击、输入、按键、滚动
-- **自动清理**: 任务完成后清理临时文件
+- **双平台支持**: macOS 和 Windows
+- **零截图执行**: 中间过程不截图，提升速度
+- **单截图验证**: 仅任务完成时截图一次
+- **自动清理**: 任务完成后自动清理临时文件
+- **权限检测**: 自动检测并提示所需权限
+- **Agent 兼容**: 支持 Codex、WorkBuddy、DSh、OpenCode 等
 
-## 版本历史
+## 📦 安装
 
-| 版本 | 日期 | 更新内容 |
-|------|------|----------|
-| 1.3.0 | 2026-08-20 | 添加单截图 + 清理模式 |
-| 1.2.0 | 2026-08-20 | 优化执行流程，零中间截图 |
-| 1.1.0 | 2026-08-20 | 初始版本 |
+### 方法 1：手动安装
 
-## 安装
+将 `SKILL.md` 文件复制到对应位置：
 
-将 `SKILL.md` 文件复制到:
-- macOS: `~/.codex/skills/` 或 `/Users/skymini/Documents/skills/`
-- Windows: `%USERPROFILE%\.codex\skills\`
+```bash
+# macOS Codex/Desktop
+cp SKILL.md ~/.codex/skills/pc-use/
 
-## 使用示例
+# macOS WorkBuddy
+ln -s /Users/skymini/Documents/skills /Users/skymini/.workbuddy/skills
 
-### 设置深色模式 (macOS)
+# Windows
+copy SKILL.md %USERPROFILE%\.codex\skills\pc-use\
+```
+
+### 方法 2：通过 git clone
+
+```bash
+git clone https://github.com/skylincn/pc-use-skill.git
+cd pc-use-skill
+cp SKILL.md ~/.codex/skills/pc-use/
+```
+
+## 🚀 快速开始
+
+### 设置深色模式
 ```bash
 defaults write -g AppleInterfaceStyle Dark
 ```
@@ -43,7 +54,57 @@ defaults write -g AppleInterfaceStyleSwitchesAutomatically -bool true
 defaults write -g NSAutomaticAppearanceVariationEnabled -bool true
 ```
 
-## 权限配置
+## 📊 能力对比
+
+| 功能 | pc-use skill | Codex Computer Use |
+|------|--------------|-------------------|
+| 平台检测 | ✅ | ✅ |
+| 前台应用检测 | ✅ 无截图 | ✅ 需截图 |
+| Accessibility Tree | ✅ | ✅ |
+| 截图验证 | ✅ 单张 | ✅ 多张 |
+| UI 交互 | ✅ | ✅ |
+| 自动清理 | ✅ | ❌ |
+| 命令执行 | ✅ 直接 | ⚠️ 浏览器依赖 |
+
+## 🛠️ 支持的 Agent 软件
+
+| 软件 | 状态 | 备注 |
+|------|------|------|
+| Codex Desktop | ✅ | 原生支持 |
+| WorkBuddy | ✅ | macOS/Windows |
+| DSh | ✅ | 跨平台 |
+| OpenCode | ✅ | 开源版本 |
+| Claude Desktop | ✅ | 通过 Skills |
+| Cursor | ⚠️ | 需配置 |
+| VS Code | ⚠️ | 需插件 |
+
+## 📝 使用示例
+
+### 示例 1：操作系统设置
+```bash
+# 打开系统设置
+open -a "System Settings"
+
+# 导航到特定面板
+open "x-apple.systempreferences:com.apple.Appearance-Settings.extension"
+```
+
+### 示例 2：文件操作
+```bash
+# 创建目录
+mkdir -p /tmp/project
+
+# 列出文件
+ls -la /tmp/project
+```
+
+### 示例 3：浏览器操作
+```bash
+# 打开 Chrome
+open -a "Google Chrome" "https://example.com"
+```
+
+## 🔒 权限配置
 
 ### macOS
 需要在系统设置中授予：
@@ -55,6 +116,6 @@ defaults write -g NSAutomaticAppearanceVariationEnabled -bool true
 - 管理员权限（pyautogui）
 - UI Automation 访问权限
 
-## License
+## 📄 License
 
 MIT

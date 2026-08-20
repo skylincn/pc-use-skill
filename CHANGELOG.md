@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.4.0] - 2026-08-20
+
+### Added
+- Agent 软件兼容性列表（Codex、WorkBuddy、DSh、OpenCode 等）
+- 详细的使用示例和场景说明
+- 能力对比表格
+- Windows 命令完整支持
+
+### Changed
+- 更新版本号到 1.4.0
+- 优化文档结构，增加目录导航
+
 ## [1.3.0] - 2026-08-20
 
 ### Added
