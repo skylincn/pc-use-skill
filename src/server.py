@@ -29,12 +29,13 @@ except ImportError:
 class SwiftHelper:
     """Manages a persistent Swift helper subprocess."""
 
-    def __init__(self, helper_path: str):
+    def __init__(self, helper_path: str, max_concurrent: int = 5):
         self.helper_path = helper_path
         self.process = None
         self._pending = {}
         self._reader_task = None
         self._lock = asyncio.Lock()
+        self._semaphore = asyncio.Semaphore(max_concurrent)
 
     async def start(self):
         if self.process is not None:
@@ -81,8 +82,9 @@ class SwiftHelper:
                 continue
 
     async def request(self, action: str, params: Optional[Dict] = None) -> Dict:
-        async with self._lock:
-            await self.start()
+        async with self._semaphore:
+            async with self._lock:
+                await self.start()
             req_id = str(uuid.uuid4())
             request = {"id": req_id, "action": action, "params": params or {}}
             loop = asyncio.get_event_loop()
