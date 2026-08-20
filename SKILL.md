@@ -14,19 +14,13 @@ compatibility:
     - "macOS 输入监控权限（System Settings → Privacy → Input Monitoring）"
 ---
 
-# PC Use Skill
+# 托管 Agent 操控电脑应用
 
-跨平台 PC 观测与自动化 Skill。自动检测操作系统并使用相应技术栈。
+跨平台 托管 Agent 操控电脑应用 Skill。自动检测操作系统并使用相应技术栈。
 
 **媲美 Codex Computer Use**
 
-对标 Codex Desktop Computer Use、oil-oil/computer-use-skill、wimi321/macos-computer-use-skill，提供更简洁高效的跨平台 PC 自动化能力。
-
-对标 Codex Desktop Computer Use、oil-oil/computer-use-skill、wimi321/macos-computer-use-skill，提供更简洁高效的跨平台 PC 自动化能力。
-
 **兼容性**: Codex Desktop / DSH / WorkBuddy / OpenCode / Claude Desktop / 任何其他支持 Skills 的 Agent 软件
-
-**对标能力**: 媲美 Codex Desktop Computer Use 和 wimi321/macos-computer-use-skill
 
 ---
 
