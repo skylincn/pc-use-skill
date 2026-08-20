@@ -20,7 +20,7 @@ func handleScreenshot(_ params: [String: Any], id: String) {
     if let c = crop {
         cmd += ["-R", "\(c["x"] as? Int ?? 0),\(c["y"] as? Int ?? 0),\(c["w"] as? Int ?? 800),\(c["h"] as? Int ?? 600)"]
     }
-    let path = NSTemporaryDirectory() + "pc-use-" + Date().formatted(date: .numeric, time: .standard) + ".png"
+    let path = NSTemporaryDirectory() + "pc-use-" + Date().formatted(date: .numeric, time: .omitted).replacingOccurrences(of: "/", with: "-") + ".png"
     cmd.append(path)
     
     let task = Process()
