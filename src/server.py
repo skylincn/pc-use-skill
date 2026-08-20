@@ -87,7 +87,7 @@ class SwiftHelper:
                 await self.start()
                 req_id = str(uuid.uuid4())
                 request = {"id": req_id, "action": action, "params": params or {}}
-            loop = asyncio.get_event_loop()
+                loop = asyncio.get_event_loop()
             future = loop.create_future()
             self._pending[req_id] = future
             self.process.stdin.write((json.dumps(request) + "\n").encode("utf-8"))
