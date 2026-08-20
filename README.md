@@ -1,6 +1,8 @@
-# PC Use Skill
+# 托管 Agent 操控电脑应用
 
-跨平台 PC 观测与自动化 Skill，支持 macOS 和 Windows。
+跨平台 托管 Agent 操控电脑应用 Skill，支持 macOS 和 Windows。
+
+媲美 Codex Computer Use 功能。
 
 ## 🎯 核心特性
 
