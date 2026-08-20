@@ -22,7 +22,7 @@
 cp SKILL.md ~/.codex/skills/pc-use/
 
 # macOS WorkBuddy
-ln -s /Users/skymini/Documents/skills /Users/skymini/.workbuddy/skills
+ln -s ~/.skills ~/.workbuddy/skills
 
 # Windows
 copy SKILL.md %USERPROFILE%\.codex\skills\pc-use\
