@@ -6,6 +6,7 @@ Integrates both macOS system control and browser automation via Playwright.
 """
 
 import asyncio
+import sys
 import json
 import os
 import platform
@@ -396,6 +397,22 @@ class PCUseMCP:
         else:
             raise ValueError(f"Unknown tool: {name}")
 
+    def handle_tool_call_sync(self, name: str, args: Dict) -> str:
+        """Synchronous wrapper for handle_tool_call."""
+        import asyncio
+        try:
+            return asyncio.get_event_loop().run_until_complete(self.handle_tool_call(name, args))
+        except RuntimeError:
+            return asyncio.run(self.handle_tool_call(name, args))
+
+    def cleanup_sync(self):
+        """Synchronous wrapper for cleanup."""
+        import asyncio
+        try:
+            asyncio.get_event_loop().run_until_complete(self.cleanup())
+        except RuntimeError:
+            asyncio.run(self.cleanup())
+
     async def cleanup(self):
         """Cleanup resources."""
         if self.helper:
@@ -451,21 +468,16 @@ async def main():
         async with stdio_server() as (read, write):
             await server.run(read, write, server.create_initialization_options())
     else:
-        # Fallback: simple JSON-RPC server
+        # Fallback: simple JSON-RPC server (synchronous I/O for Python 3.9 compat)
         print(f"PC Use Server v2.1 (no MCP SDK) started", flush=True)
         tools = pc_use.get_tools()
         
-        reader = asyncio.StreamReader()
-        protocol = asyncio.StreamReaderProtocol(reader)
-        await asyncio.get_event_loop().connect_read_pipe(lambda: protocol, sys.stdin)
-        wsock = asyncio.StreamWriter(sys.stdout, None, None)
-
         while True:
-            line = await reader.readline()
-            if not line:
+            line = sys.stdin.readline()
+            if not line or not line.strip():
                 break
             try:
-                msg = json.loads(line.decode())
+                msg = json.loads(line.strip())
                 if msg.get("method") == "initialize":
                     resp = {"jsonrpc": "2.0", "id": msg["id"], "result": {
                         "protocolVersion": "2024-11-05",
@@ -478,9 +490,9 @@ async def main():
                     name = msg["params"]["name"]
                     args = msg["params"].get("arguments", {})
                     try:
-                        result = await pc_use.handle_tool_call(name, args)
+                        result = pc_use.handle_tool_call_sync(name, args)
                         resp = {"jsonrpc": "2.0", "id": msg["id"], "result": {
-                            "content": [{"type": "text", "text": result}]
+                            "content": [{"type": "text", "text": str(result)}]
                         }}
                     except Exception as e:
                         resp = {"jsonrpc": "2.0", "id": msg["id"], "error": {
@@ -490,13 +502,11 @@ async def main():
                     resp = {"jsonrpc": "2.0", "id": msg.get("id"), "error": {
                         "code": -32601, "message": f"Method not found: {msg.get('method')}"
                     }}
-                wsock.write((json.dumps(resp) + "\n").encode())
-                await wsock.drain()
+                print(json.dumps(resp), flush=True)
             except Exception as e:
                 print(f"Error: {e}", flush=True)
-
-        await pc_use.cleanup()
-
+        
+        pass  # cleanup skipped in fallback mode
 
 if __name__ == "__main__":
     asyncio.run(main())
