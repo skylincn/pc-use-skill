@@ -2,7 +2,6 @@
 """
 PC Use MCP Server - Simplified v2.0
 Direct JSON-RPC over stdio, no complex MCP SDK dependencies.
-Integrates both macOS system control and browser automation via Playwright.
 """
 
 import asyncio
@@ -22,13 +21,6 @@ try:
     MCP_AVAILABLE = True
 except ImportError:
     MCP_AVAILABLE = False
-
-# Playwright imports
-try:
-    from playwright.async_api import async_playwright
-    PLAYWRIGHT_AVAILABLE = True
-except ImportError:
-    PLAYWRIGHT_AVAILABLE = False
 
 
 class SwiftHelper:
@@ -145,15 +137,11 @@ class SwiftHelper:
 
 
 class PCUseMCP:
-    """PC Use MCP Server with Playwright browser integration."""
+    """PC Use MCP Server."""
 
     def __init__(self):
         self.helper = None
         self.platform = platform.system()
-        self._playwright = None
-        self._browser = None
-        self._context = None
-        self._page = None
 
     def get_platform(self):
         system = platform.system()
@@ -164,107 +152,28 @@ class PCUseMCP:
         return system
 
     def get_tools(self):
-        tools = [
-            # System tools
-            {"name": "screenshot", "description": "Take a screenshot of the screen. Optionally crop to a region.",
+        return [
+            {"name": "screenshot", "description": "Take a screenshot. Optionally crop to a region.",
              "inputSchema": {"type": "object", "properties": {"crop_x": {"type": "integer"}, "crop_y": {"type": "integer"}, "crop_w": {"type": "integer"}, "crop_h": {"type": "integer"}}}},
-            {"name": "click", "description": "Click at screen coordinates.",
+            {"name": "click", "description": "Click at coordinates.",
              "inputSchema": {"type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}}, "required": ["x", "y"]}},
-            {"name": "double_click", "description": "Double-click at screen coordinates.",
+            {"name": "double_click", "description": "Double-click at coordinates.",
              "inputSchema": {"type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}}, "required": ["x", "y"]}},
-            {"name": "type_text", "description": "Type text at current cursor position (supports Chinese).",
+            {"name": "type_text", "description": "Type text (supports Chinese).",
              "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
-            {"name": "scroll", "description": "Scroll at screen coordinates. Negative amount = down.",
+            {"name": "scroll", "description": "Scroll. Negative = down.",
              "inputSchema": {"type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}, "amount": {"type": "integer"}}, "required": ["x", "y", "amount"]}},
-            {"name": "get_current_app", "description": "Get frontmost application name.",
+            {"name": "get_current_app", "description": "Get frontmost app name.",
              "inputSchema": {"type": "object", "properties": {}}},
-            {"name": "get_windows", "description": "Get list of open windows.",
+            {"name": "get_windows", "description": "Get window list.",
              "inputSchema": {"type": "object", "properties": {}}},
-            {"name": "get_accessibility_tree", "description": "Get accessibility tree for an app.",
+            {"name": "get_accessibility_tree", "description": "Get accessibility tree.",
              "inputSchema": {"type": "object", "properties": {"app": {"type": "string"}}}},
             {"name": "key_combo", "description": "Send key combo, e.g. 'command,a'.",
              "inputSchema": {"type": "object", "properties": {"keys": {"type": "string"}}, "required": ["keys"]}},
         ]
-        
-        if PLAYWRIGHT_AVAILABLE:
-            tools.extend([
-                # Browser tools
-                {"name": "browser_open", "description": "Open a URL in the browser.",
-                 "inputSchema": {"type": "object", "properties": {"url": {"type": "string", "description": "URL to open"}}, "required": ["url"]}},
-                {"name": "browser_snapshot", "description": "Get page snapshot with stable element references (e1, e2, etc.).",
-                 "inputSchema": {"type": "object", "properties": {}}},
-                {"name": "browser_click", "description": "Click an element by its snapshot reference (e1, e2, etc.).",
-                 "inputSchema": {"type": "object", "properties": {"ref": {"type": "string", "description": "Element ref like e1, e2"}}, "required": ["ref"]}},
-                {"name": "browser_type", "description": "Type text into an element by its snapshot reference.",
-                 "inputSchema": {"type": "object", "properties": {"ref": {"type": "string", "description": "Element ref like e1, e2"}, "text": {"type": "string", "description": "Text to type"}}, "required": ["ref", "text"]}},
-                {"name": "browser_fill", "description": "Fill an input field with text.",
-                 "inputSchema": {"type": "object", "properties": {"ref": {"type": "string", "description": "Element ref like e1, e2"}, "text": {"type": "string", "description": "Text to fill"}}, "required": ["ref", "text"]}},
-                {"name": "browser_screenshot", "description": "Take a screenshot of the current page.",
-                 "inputSchema": {"type": "object", "properties": {"full_page": {"type": "boolean", "description": "Capture full page height"}}}},
-                {"name": "browser_press", "description": "Press a keyboard key.",
-                 "inputSchema": {"type": "object", "properties": {"key": {"type": "string", "description": "Key to press, e.g. 'Enter', 'Escape', 'Tab'"}}, "required": ["key"]}},
-                {"name": "browser_navigate", "description": "Navigate to a URL.",
-                 "inputSchema": {"type": "object", "properties": {"url": {"type": "string", "description": "URL to navigate to"}}, "required": ["url"]}},
-                {"name": "browser_go_back", "description": "Go back in browser history.",
-                 "inputSchema": {"type": "object", "properties": {}}},
-                {"name": "browser_go_forward", "description": "Go forward in browser history.",
-                 "inputSchema": {"type": "object", "properties": {}}},
-            ])
-        
-        return tools
-
-    async def _ensure_browser(self):
-        """Ensure browser is running."""
-        if self._page is not None:
-            return
-        
-        if not PLAYWRIGHT_AVAILABLE:
-            raise RuntimeError("Playwright is not installed. Run: pip3 install playwright && playwright install chromium")
-        
-        if self._playwright is None:
-            self._playwright = await async_playwright().start()
-        
-        if self._browser is None:
-            self._browser = await self._playwright.chromium.launch(headless=True)
-        
-        if self._context is None:
-            self._context = await self._browser.new_context()
-        
-        if self._page is None or not self._page.is_closed():
-            if self._page and self._page.is_closed():
-                self._page = None
-            if self._page is None:
-                self._page = await self._context.new_page()
-
-    async def _close_browser(self):
-        """Close browser if open."""
-        if self._page:
-            try:
-                await self._page.close()
-            except:
-                pass
-            self._page = None
-        if self._context:
-            try:
-                await self._context.close()
-            except:
-                pass
-            self._context = None
-        if self._browser:
-            try:
-                await self._browser.close()
-            except:
-                pass
-            self._browser = None
-        if self._playwright:
-            try:
-                await self._playwright.stop()
-            except:
-                pass
-            self._playwright = None
 
     async def handle_tool_call(self, name: str, args: Dict) -> str:
-        # System tools
         if name == "screenshot":
             crop = None
             if args.get("crop_w") and args.get("crop_h"):
@@ -296,111 +205,8 @@ class PCUseMCP:
             keys = [k.strip() for k in args["keys"].split(",")]
             await self.helper.key_combo(keys)
             return f"Sent key combo: {keys}"
-        # Browser tools
-        elif name == "browser_open":
-            await self._ensure_browser()
-            url = args["url"]
-            await self._page.goto(url)
-            return f"Opened: {url}"
-        elif name == "browser_navigate":
-            await self._ensure_browser()
-            url = args["url"]
-            await self._page.goto(url)
-            return f"Navigated to: {url}"
-        elif name == "browser_snapshot":
-            await self._ensure_browser()
-            snapshot = await self._page.evaluate("""
-                () => {
-                    const elements = [];
-                    const allElements = document.querySelectorAll('*');
-                    let counter = 1;
-                    
-                    // Find interactive elements
-                    const selectors = 'a, button, input, textarea, select, [role="button"], [role="link"], [role="tab"], [role="menuitem"], [tabindex="0"]';
-                    allElements.forEach(el => {
-                        if (el.closest(selectors)) {
-                            const rect = el.getBoundingClientRect();
-                            if (rect.width > 0 && rect.height > 0) {
-                                const text = (el.textContent || '').trim().substring(0, 50);
-                                const role = el.getAttribute('role') || el.tagName.toLowerCase();
-                                const label = el.getAttribute('aria-label') || el.getAttribute('name') || text;
-                                elements.push({
-                                    ref: 'e' + counter++,
-                                    tag: el.tagName.toLowerCase(),
-                                    role: role,
-                                    text: text,
-                                    label: label || text,
-                                    x: Math.round(rect.x + rect.width/2),
-                                    y: Math.round(rect.y + rect.height/2),
-                                    visible: rect.width < window.innerWidth * 2 && rect.height < window.innerHeight * 2
-                                });
-                            }
-                        }
-                    });
-                    
-                    return {
-                        elements: elements,
-                        title: document.title,
-                        url: document.url
-                    };
-                }
-            """)
-            return json.dumps(snapshot, indent=2, ensure_ascii=False)
-        elif name == "browser_click":
-            await self._ensure_browser()
-            ref = args["ref"]
-            # Try element ref first
-            success = await self._page.evaluate(f"""
-                () => {{
-                    const el = document.querySelector('[data-ref="{ref}"]');
-                    if (el) {{ el.click(); return true; }}
-                    return false;
-                }}
-            """)
-            if not success:
-                # Fallback: find by text/content
-                await self._page.click(f"text={ref}")
-            return f"Clicked: {ref}"
-        elif name == "browser_type":
-            await self._ensure_browser()
-            ref = args["ref"]
-            text = args["text"]
-            await self._page.fill(f"text={ref}", text)
-            return f"Typed '{text[:30]}' into: {ref}"
-        elif name == "browser_fill":
-            await self._ensure_browser()
-            ref = args["ref"]
-            text = args["text"]
-            await self._page.fill(f"text={ref}", text)
-            return f"Filled '{text[:30]}' into: {ref}"
-        elif name == "browser_screenshot":
-            await self._ensure_browser()
-            full_page = args.get("full_page", False)
-            tmpdir = tempfile.gettempdir()
-            path = f"{tmpdir}/pc-use-browser-{uuid.uuid4().hex[:8]}.png"
-            await self._page.screenshot(path=path, full_page=full_page)
-            return f"Screenshot saved: {path}"
-        elif name == "browser_press":
-            await self._ensure_browser()
-            key = args["key"]
-            await self._page.keyboard.press(key)
-            return f"Pressed: {key}"
-        elif name == "browser_go_back":
-            await self._ensure_browser()
-            await self._page.go_back()
-            return f"Navigated back to: {self._page.url}"
-        elif name == "browser_go_forward":
-            await self._ensure_browser()
-            await self._page.go_forward()
-            return f"Navigated forward to: {self._page.url}"
         else:
             raise ValueError(f"Unknown tool: {name}")
-
-    async def cleanup(self):
-        """Cleanup resources."""
-        if self.helper:
-            await self.helper.stop()
-        await self._close_browser()
 
 
 async def main():
@@ -430,31 +236,13 @@ async def main():
                 return {"content": [{"type": "text", "text": str(result)}]}
             except Exception as e:
                 return {"isError": True, "content": [{"type": "text", "text": f"Error: {e}"}]}
-            finally:
-                # Clean up on exit
-                await pc_use.cleanup()
 
-        # Setup cleanup on shutdown
-        import signal
-        loop = asyncio.get_event_loop()
-        
-        def shutdown(sig, frame):
-            asyncio.create_task(pc_use.cleanup())
-        
-        try:
-            loop.add_signal_handler(signal.SIGINT, lambda: asyncio.create_task(pc_use.cleanup()))
-            loop.add_signal_handler(signal.SIGTERM, lambda: asyncio.create_task(pc_use.cleanup()))
-        except (NotImplementedError, OSError):
-            pass  # Windows doesn't support add_signal_handler
-
-        print(f"PC Use MCP Server v2.1 started (platform: {pc_use.get_platform()}, playwright: {'✓' if PLAYWRIGHT_AVAILABLE else '✗'})", flush=True)
+        print(f"PC Use MCP Server v2.0 started (platform: {pc_use.get_platform()})", flush=True)
         async with stdio_server() as (read, write):
             await server.run(read, write, server.create_initialization_options())
     else:
         # Fallback: simple JSON-RPC server
-        print(f"PC Use Server v2.1 (no MCP SDK) started", flush=True)
-        tools = pc_use.get_tools()
-        
+        print(f"PC Use Server v2.0 (no MCP SDK) started", flush=True)
         reader = asyncio.StreamReader()
         protocol = asyncio.StreamReaderProtocol(reader)
         await asyncio.get_event_loop().connect_read_pipe(lambda: protocol, sys.stdin)
@@ -470,7 +258,7 @@ async def main():
                     resp = {"jsonrpc": "2.0", "id": msg["id"], "result": {
                         "protocolVersion": "2024-11-05",
                         "capabilities": {"tools": {}},
-                        "serverInfo": {"name": "pc-use", "version": "2.1.0"}
+                        "serverInfo": {"name": "pc-use", "version": "2.0.0"}
                     }}
                 elif msg.get("method") == "tools/list":
                     resp = {"jsonrpc": "2.0", "id": msg["id"], "result": {"tools": tools}}
@@ -495,7 +283,7 @@ async def main():
             except Exception as e:
                 print(f"Error: {e}", flush=True)
 
-        await pc_use.cleanup()
+        await pc_use.helper.stop()
 
 
 if __name__ == "__main__":
